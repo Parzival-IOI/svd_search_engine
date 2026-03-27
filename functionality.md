@@ -1,289 +1,156 @@
-# 🎬 SVD-Based Movie Search Engine — Functionality Documentation
+# SVD-Based Movie Search Engine - Functionality Documentation
 
 ## 1. Overview
 
-This search engine is designed to retrieve relevant movies based on a user’s query using **Latent Semantic Analysis (LSA)** powered by **Singular Value Decomposition (SVD)**.
+This project implements semantic movie retrieval in a notebook workflow using:
 
-Unlike traditional keyword matching, this system understands **semantic relationships** between words, allowing it to return relevant results even when exact terms do not match.
+- TF-IDF for term weighting
+- Truncated SVD for latent semantic projection (LSA)
+- Cosine similarity for ranking
 
----
+The current implementation runs end-to-end in main.ipynb and uses real IMDb data from Kaggle.
 
-## 2. System Architecture
+## 2. End-to-End Architecture
 
-The system consists of the following main components:
-
-```
-Dataset → Text Processing → TF-IDF → SVD (LSA) → Query Processing → Similarity Ranking → Results
-```
-
----
-
-## 3. Dataset Structure
-
-Each movie document contains:
-
-```json
-{
-  "id": 1,
-  "title": "Movie Title",
-  "genre": ["Action", "Sci-Fi"],
-  "description": "Short description of the movie",
-  "year": 2020,
-  "rating": 7.5
-}
+```text
+Kaggle IMDb-v2 download
+  -> schema detection and normalization
+  -> corpus construction (title + genre + description)
+  -> TF-IDF vectorization
+  -> SVD + normalization (LSA space)
+  -> query projection
+  -> cosine similarity ranking
+  -> tabular + visual outputs
 ```
 
----
+## 3. Data Source and Normalization
 
-## 4. Core Components
+### 3.1 Source
 
-### 4.1 Text Preprocessing
+- Dataset provider: Kaggle
+- Dataset: chenyanglim/imdb-v2
+- File loading supports csv, tsv, or parquet
 
-Each movie is converted into a single text document:
+### 3.2 Column Mapping Strategy
 
-```
-combined_text = title + genre + description
-```
+The notebook detects available columns from candidate names and maps them into a normalized schema:
 
-Steps:
+- id
+- title
+- genre
+- description
+- year
+- rating
 
-* Convert to lowercase
-* Remove stopwords (e.g., "the", "is", "and")
-* Tokenization handled by TF-IDF
+If a preferred column is unavailable, the pipeline falls back to alternatives. If title is missing, execution fails fast with a clear error.
 
----
+### 3.3 Field Parsing Rules
 
-### 4.2 TF-IDF Vectorization
+- Genre values are split by common delimiters (| , / ;).
+- Year values are parsed from text using 4-digit year matching.
+- Rating values are converted to float where possible.
+- Empty descriptions fall back to the movie title.
 
-TF-IDF (Term Frequency – Inverse Document Frequency) converts text into a numerical matrix.
+The resulting normalized dataframe is converted to a list of movie records for search.
 
-* Rows → Movies (documents)
-* Columns → Words (features)
-* Values → Importance of words in each document
+## 4. Core Retrieval Pipeline
 
-Result:
+### 4.1 Corpus Construction
 
-```
-Term-Document Matrix (Sparse Matrix)
-```
+Each movie document is built as:
 
----
-
-### 4.3 Dimensionality Reduction using SVD
-
-SVD decomposes the TF-IDF matrix:
-
-```
-A ≈ U Σ Vᵀ
+```text
+title + genre tokens + description
 ```
 
-Where:
+The combined text is lowercased and collected into a corpus list.
 
-* **U** → document-topic matrix
-* **Σ** → importance of each latent topic
-* **Vᵀ** → term-topic relationships
+### 4.2 TF-IDF
 
-Purpose:
+TF-IDF converts corpus text into a sparse matrix where:
 
-* Reduce noise
-* Capture hidden semantic structure
-* Map documents into a lower-dimensional space
+- rows represent movies
+- columns represent vocabulary terms
+- values represent term importance per movie
 
-This step transforms:
+Configuration used:
 
-```
-High-dimensional word space → Low-dimensional semantic space
-```
+- TfidfVectorizer(stop_words="english")
 
----
+### 4.3 SVD / LSA Projection
 
-### 4.4 Latent Semantic Analysis (LSA)
+The notebook fits a TruncatedSVD model and a Normalizer in a pipeline.
 
-After applying SVD:
+Component count is bounded by matrix limits to avoid invalid dimensions:
 
-* Words with similar meanings are grouped together
-* Example:
-
-  * "space", "alien", "galaxy" → similar semantic direction
-
-This allows the system to:
-
-* Understand context
-* Match related concepts instead of exact words
-
----
-
-### 4.5 Query Processing
-
-When a user inputs a query:
-
-Example:
-
-```
-"space mission alien"
+```text
+max_components = min(n_samples - 1, n_features - 1)
+n_components = min(requested_components, max_components)
 ```
 
-Steps:
+This projects TF-IDF vectors into a lower-dimensional latent semantic space.
 
-1. Apply same TF-IDF transformation
-2. Project query into SVD space
-3. Represent query as a vector
+### 4.4 Query Search
 
----
+For a user query:
 
-### 4.6 Similarity Computation
+1. Transform query into TF-IDF space
+2. Project query to LSA space
+3. Compute cosine similarity against movie vectors
+4. Rank descending and return top-k results
 
-The system computes similarity between:
+Default output fields:
 
-```
-Query vector ↔ Movie vectors
-```
+- title
+- genre
+- year
+- rating
+- score
 
-Using:
+## 5. Visual and Diagnostic Outputs
 
-```
-Cosine Similarity
-```
+The notebook includes plots to inspect data and model behavior:
 
-Formula:
+- Year and rating distributions
+- Genre frequency
+- Top terms by average TF-IDF weight
+- Cumulative SVD explained variance
+- 2D latent semantic scatter sample
+- Query result similarity bar chart
 
-```
-similarity = (A · B) / (||A|| × ||B||)
-```
+It also includes a multi-query comparison section to quickly evaluate search quality across different query intents.
 
-Range:
+## 6. Mathematical Basis
 
-* 1 → identical
-* 0 → unrelated
+LSA is applied through truncated matrix factorization:
 
----
+$$
+A \approx U\Sigma V^T
+$$
 
-### 4.7 Ranking & Retrieval
+Similarity scoring uses cosine similarity:
 
-Steps:
+$$
+s(x, y) = \frac{x \cdot y}{\|x\|\|y\|}
+$$
 
-1. Compute similarity scores for all movies
-2. Sort in descending order
-3. Return top-k results
+## 7. Strengths
 
-Output example:
+- Captures semantic relatedness beyond exact keyword match
+- Reduces sparse noise through latent projection
+- Fast ranking with vector operations
+- Transparent workflow with visual diagnostics
 
-```
-1. Movie A — score: 0.89
-2. Movie B — score: 0.85
-3. Movie C — score: 0.81
-```
+## 8. Current Limitations
 
----
+- Bag-of-words + LSA is less context-aware than transformer embeddings
+- Retrieval quality depends on metadata and description quality
+- Pipeline is recomputed in notebook sessions (no persisted artifacts yet)
 
-## 5. Search Flow (End-to-End)
+## 9. Recommended Next Steps
 
-```
-User Query
-   ↓
-TF-IDF Transformation
-   ↓
-SVD Projection
-   ↓
-Cosine Similarity
-   ↓
-Ranking
-   ↓
-Top Results Displayed
-```
-
----
-
-## 6. Key Advantages
-
-### ✅ Semantic Understanding
-
-* Finds related content even without exact keyword match
-
-### ✅ Noise Reduction
-
-* Removes less important words via dimensionality reduction
-
-### ✅ Efficient Search
-
-* Lower-dimensional vectors improve performance
-
----
-
-## 7. Limitations
-
-### ❌ No Deep Context Understanding
-
-* Cannot fully understand complex language like modern NLP models
-
-### ❌ Dependent on Dataset Quality
-
-* Poor descriptions → weaker results
-
-### ❌ Static Model
-
-* Does not learn dynamically unless retrained
-
----
-
-## 8. Possible Improvements
-
-### 🔹 Weighted Ranking
-
-Combine similarity with rating:
-
-```
-final_score = 0.8 * similarity + 0.2 * rating
-```
-
----
-
-### 🔹 Query Expansion
-
-Add related terms automatically:
-
-* "space" → "galaxy", "alien"
-
----
-
-### 🔹 Filtering
-
-* By genre
-* By year
-* By rating
-
----
-
-### 🔹 Web Interface
-
-* Build UI using Flask or FastAPI
-* Add search bar and result cards
-
----
-
-### 🔹 Model Persistence
-
-* Save trained model using `joblib`
-* Avoid recomputation
-
----
-
-## 9. Conclusion
-
-This system demonstrates how **SVD can be applied in real-world search engines** to:
-
-* Extract hidden relationships in text
-* Improve search relevance
-* Move beyond keyword-based retrieval
-
-It serves as a foundational approach to modern semantic search systems.
-
----
-
-## 10. Future Scope
-
-* Replace SVD with advanced embeddings (Word2Vec, BERT)
-* Integrate real-time user feedback
-* Deploy as a scalable web service
-
----
+1. Persist trained artifacts (TF-IDF model, SVD pipeline, latent matrix).
+2. Add pre-ranking filters (genre/year/rating).
+3. Introduce hybrid ranking with rating-aware weighting.
+4. Expose notebook logic as an API for interactive applications.
+5. Evaluate modern embedding-based retrieval as a future baseline comparison.
