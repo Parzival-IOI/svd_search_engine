@@ -19,10 +19,16 @@ The workflow uses a real IMDb dataset from Kaggle, projects movie text and user 
 
 ```text
 svd_search_engine/
-|- main.ipynb       # End-to-end notebook pipeline and plots
-|- functionality.md # Detailed functionality documentation
-|- requirements.txt # Python dependencies
-|- readme.md        # Project overview and usage
+|- app.py                                 # Streamlit multipage entry
+|- pages/
+|  |- 1_Process_Notebook_View.py          # Notebook-equivalent process page
+|  |- 2_Real_Time_SVD_Demo.py             # Real-time search demo page
+|- streamlit_ui.py                        # Shared Streamlit UI helpers
+|- search_pipeline.py                     # Reusable data/model/search pipeline
+|- main.ipynb                             # End-to-end notebook pipeline and plots
+|- functionality.md                       # Detailed functionality documentation
+|- requirements.txt                       # Python dependencies
+|- readme.md                              # Project overview and usage
 ```
 
 ## Notebook Pipeline
@@ -76,6 +82,26 @@ pip install ipywidgets
 3. Change the query value in the search cell to test retrieval behavior.
 4. Use the multi-query section to compare semantic intent coverage.
 
+## Run Streamlit App
+
+```bash
+streamlit run app.py
+```
+
+The app is organized in Streamlit's native multipage structure (`app.py` + `pages/`).
+
+Available pages:
+
+- Process Notebook View: process, code, charts, tables, and narrative analysis aligned with main.ipynb.
+- Real-Time SVD Demo: interactive search UI with filters and weighted ranking.
+
+The app adds:
+
+- Artifact persistence with joblib
+- Filters by genre, year range, and minimum rating
+- Weighted ranking (similarity + normalized rating)
+- Interactive charts and data tables for each pipeline stage
+
 ## Example Queries
 
 - space mission
@@ -96,12 +122,18 @@ pip install ipywidgets
 - Retrieval quality depends on source text quality.
 - Model artifacts are not persisted yet; notebook recomputes the pipeline.
 
-## Next Improvements
+## Implemented Improvements
 
 - Persist trained artifacts (vectorizer, SVD, latent matrix) with joblib.
 - Add filters by genre/year/rating before ranking.
 - Add weighted ranking that combines similarity and rating.
-- Build API or lightweight UI for interactive serving.
+- Build a lightweight Streamlit UI for interactive serving.
+
+## Next Improvements
+
+- Add a FastAPI backend for programmatic search.
+- Add model versioning and dataset fingerprinting in saved artifacts.
+- Add result explanations (top contributing terms per hit).
 
 ## License
 
