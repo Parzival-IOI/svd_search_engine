@@ -46,6 +46,13 @@ c1.metric("Movies", f"{len(artifacts.df):,}")
 c2.metric("SVD Components", f"{artifacts.svd.n_components}")
 c3.metric("Vocabulary Size", f"{len(artifacts.tfidf.get_feature_names_out()):,}")
 
+fingerprint_display = (artifacts.data_fingerprint[:16] + "...") if artifacts.data_fingerprint else "N/A"
+st.caption(
+    f"Model version: **{artifacts.version}** | "
+    f"Built at: **{artifacts.created_at or 'N/A'}** | "
+    f"Data fingerprint (MD5): `{fingerprint_display}`"
+)
+
 st.markdown("**Analysis**: The dataset is normalized into a consistent schema (id, title, genre, description, year, rating), which makes downstream modeling robust to source-column variation.")
 if mapping:
     st.write("Detected column mapping")

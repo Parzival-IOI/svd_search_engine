@@ -1,5 +1,7 @@
+import pandas as pd
 import streamlit as st
 
+from search_pipeline import explain_results
 from streamlit_ui import (
     chart_result_scores,
     dataset_bounds,
@@ -75,6 +77,17 @@ else:
     st.markdown("### Score Interpretation")
     st.markdown("- similarity: cosine similarity in latent semantic space")
     st.markdown("- weighted_score: alpha * similarity + (1 - alpha) * normalized_rating")
+
+    st.markdown("### Why These Results?")
+    explanations = explain_results(query, result_df, artifacts, top_n=5)
+    for idx, row in result_df.iterrows():
+        with st.expander(f"{row['title']}"):
+            terms = explanations.get(idx, [])
+            if terms:
+                st.dataframe(
+                    pd.DataFrame(terms, columns=["Term", "Score"]),
+                    width="stretch",
+                )
 
 st.subheader("Quick Multi-Query Check")
 query_block = st.text_area(

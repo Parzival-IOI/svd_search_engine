@@ -12,6 +12,7 @@ from search_pipeline import (
     build_model,
     build_corpus,
     download_and_normalize,
+    explain_results,
     load_artifacts,
     make_artifacts,
     save_artifacts,
@@ -24,7 +25,12 @@ sns.set_theme(style="whitegrid")
 @st.cache_resource(show_spinner=False)
 def build_pipeline(dataset_slug: str, n_components: int):
     df, mapping = download_and_normalize(dataset_slug)
-    artifacts, X_tfidf = make_artifacts(df, dataset_slug=dataset_slug, n_components=n_components)
+    artifacts, X_tfidf = make_artifacts(
+        df,
+        dataset_slug=dataset_slug,
+        n_components=n_components,
+        data_fingerprint=mapping.get("data_fingerprint", ""),
+    )
     return artifacts, X_tfidf, mapping
 
 
@@ -227,4 +233,5 @@ def process_functions_for_display():
         build_corpus,
         build_model,
         search_movies,
+        explain_results,
     ]

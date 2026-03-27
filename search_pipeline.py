@@ -1,7 +1,10 @@
 import glob
+import hashlib
 import os
 import re
+import shutil
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -14,6 +17,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 
+MODEL_VERSION = "1.0.0"
+
 
 @dataclass
 class PipelineArtifacts:
@@ -24,6 +29,9 @@ class PipelineArtifacts:
     df: pd.DataFrame
     corpus: list[str]
     dataset_slug: str
+    version: str = MODEL_VERSION
+    created_at: str = ""
+    data_fingerprint: str = ""
 
 
 def _first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -59,24 +67,47 @@ def _parse_rating(value):
         return np.nan
 
 
-def download_and_normalize(dataset_slug: str = "chenyanglim/imdb-v2") -> tuple[pd.DataFrame, dict]:
-    dataset_path = kagglehub.dataset_download(dataset_slug)
+def _file_md5(path: Path) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-    tabular_files = sorted(
-        glob.glob(os.path.join(dataset_path, "*.csv"))
-        + glob.glob(os.path.join(dataset_path, "*.tsv"))
-        + glob.glob(os.path.join(dataset_path, "*.parquet"))
-    )
-    if not tabular_files:
-        raise FileNotFoundError("No CSV/TSV/Parquet file found in downloaded Kaggle dataset.")
 
-    data_file = tabular_files[0]
-    if data_file.endswith(".csv"):
-        raw_df = pd.read_csv(data_file, low_memory=False)
-    elif data_file.endswith(".tsv"):
-        raw_df = pd.read_csv(data_file, sep="\t", low_memory=False)
+def download_and_normalize(
+    dataset_slug: str = "chenyanglim/imdb-v2",
+    data_dir: str = "data",
+) -> tuple[pd.DataFrame, dict]:
+    slug_safe = dataset_slug.replace("/", "_")
+    local_csv = Path(data_dir) / f"{slug_safe}.csv"
+
+    if local_csv.exists():
+        raw_df = pd.read_csv(local_csv, low_memory=False)
+        data_fingerprint = _file_md5(local_csv)
+        source_label = f"local cache: {local_csv}"
     else:
-        raw_df = pd.read_parquet(data_file)
+        dataset_path = kagglehub.dataset_download(dataset_slug)
+        tabular_files = sorted(
+            glob.glob(os.path.join(dataset_path, "*.csv"))
+            + glob.glob(os.path.join(dataset_path, "*.tsv"))
+            + glob.glob(os.path.join(dataset_path, "*.parquet"))
+        )
+        if not tabular_files:
+            raise FileNotFoundError("No CSV/TSV/Parquet file found in downloaded Kaggle dataset.")
+
+        source_file = tabular_files[0]
+        if source_file.endswith(".csv"):
+            raw_df = pd.read_csv(source_file, low_memory=False)
+        elif source_file.endswith(".tsv"):
+            raw_df = pd.read_csv(source_file, sep="\t", low_memory=False)
+        else:
+            raw_df = pd.read_parquet(source_file)
+
+        local_csv.parent.mkdir(parents=True, exist_ok=True)
+        raw_df.to_csv(local_csv, index=False)
+        data_fingerprint = _file_md5(local_csv)
+        source_label = f"Kaggle download \u2192 cached to: {local_csv}"
 
     id_col = _first_existing_column(raw_df, ["imdb_title_id", "id"])
     title_col = _first_existing_column(raw_df, ["original_title", "title", "movie_title", "primaryTitle", "name"])
@@ -108,8 +139,9 @@ def download_and_normalize(dataset_slug: str = "chenyanglim/imdb-v2") -> tuple[p
     norm_df = norm_df.dropna(subset=["title"]).reset_index(drop=True)
 
     mapping = {
-        "dataset_path": dataset_path,
-        "data_file": os.path.basename(data_file),
+        "source_label": source_label,
+        "data_file": local_csv.name,
+        "data_fingerprint": data_fingerprint,
         "raw_shape": raw_df.shape,
         "normalized_shape": norm_df.shape,
         "columns": list(raw_df.columns),
@@ -149,7 +181,12 @@ def build_model(corpus: list[str], n_components: int = 100):
     return tfidf, lsa, svd, X_tfidf, X_lsa
 
 
-def make_artifacts(df: pd.DataFrame, dataset_slug: str, n_components: int = 100) -> tuple[PipelineArtifacts, object]:
+def make_artifacts(
+    df: pd.DataFrame,
+    dataset_slug: str,
+    n_components: int = 100,
+    data_fingerprint: str = "",
+) -> tuple[PipelineArtifacts, object]:
     corpus = build_corpus(df)
     tfidf, lsa, svd, X_tfidf, X_lsa = build_model(corpus, n_components=n_components)
     artifacts = PipelineArtifacts(
@@ -160,6 +197,9 @@ def make_artifacts(df: pd.DataFrame, dataset_slug: str, n_components: int = 100)
         df=df,
         corpus=corpus,
         dataset_slug=dataset_slug,
+        version=MODEL_VERSION,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        data_fingerprint=data_fingerprint,
     )
     return artifacts, X_tfidf
 
@@ -175,6 +215,9 @@ def save_artifacts(artifacts: PipelineArtifacts, path: str = "artifacts/search_a
         "df": artifacts.df,
         "corpus": artifacts.corpus,
         "dataset_slug": artifacts.dataset_slug,
+        "version": artifacts.version,
+        "created_at": artifacts.created_at,
+        "data_fingerprint": artifacts.data_fingerprint,
     }
     joblib.dump(payload, out_path)
     return str(out_path)
@@ -190,6 +233,9 @@ def load_artifacts(path: str = "artifacts/search_artifacts.joblib") -> PipelineA
         df=payload["df"],
         corpus=payload["corpus"],
         dataset_slug=payload.get("dataset_slug", "unknown"),
+        version=payload.get("version", "unknown"),
+        created_at=payload.get("created_at", ""),
+        data_fingerprint=payload.get("data_fingerprint", ""),
     )
 
 
@@ -243,3 +289,36 @@ def search_movies(
     ranked = results.sort_values("weighted_score", ascending=False).head(top_k).copy()
     ranked["genre"] = ranked["genre"].apply(lambda g: ", ".join(g) if isinstance(g, list) else str(g))
     return ranked[["title", "genre", "year", "rating", "similarity", "weighted_score"]]
+
+
+def explain_results(
+    query: str,
+    result_df: pd.DataFrame,
+    artifacts: PipelineArtifacts,
+    top_n: int = 5,
+) -> dict:
+    """Return top contributing vocabulary terms for each result row.
+
+    Keys are the original DataFrame indices from result_df.
+    Values are lists of (term, score) tuples sorted by contribution descending.
+
+    Approach: element-wise product of query and movie LSA vectors identifies
+    which latent dimensions overlap most; projecting that overlap back through
+    SVD components_ reveals the vocabulary terms driving the match.
+    """
+    if not query.strip() or result_df.empty:
+        return {}
+
+    query_vec = artifacts.tfidf.transform([query])
+    query_lsa = artifacts.lsa.transform(query_vec)[0]  # (n_components,)
+    feature_names = artifacts.tfidf.get_feature_names_out()
+
+    explanations = {}
+    for idx in result_df.index:
+        movie_lsa = artifacts.X_lsa[idx]  # (n_components,)
+        overlap = query_lsa * movie_lsa  # dimension-wise similarity contribution
+        term_scores = overlap @ artifacts.svd.components_  # project back to vocab
+        top_idx = np.argsort(term_scores)[-top_n:][::-1]
+        explanations[idx] = [(feature_names[i], float(term_scores[i])) for i in top_idx]
+
+    return explanations
