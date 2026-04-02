@@ -87,25 +87,80 @@ CoreNLP XML.gz per movie (42 k files)
 
 ---
 
-## Datasets
+## Data & Models
 
-### Wikipedia Movie Plots (v1)
-- Source: [Kaggle — jrobischon/wikipedia-movie-plots](https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots)
-- ~34,886 movies with Wikipedia plot summaries
-- Columns used: `Title`, `Genre`, `Plot`, `Release Year`
-- Downloaded on first run via `kagglehub`, cached to `data/raw/`
+Large files (datasets and trained models) are **not stored in this repository**.  
+They are either freely downloadable from their original sources or reproducible by running the pipeline.
 
-### CMU MovieSummaries (v2)
-- Source: [CMU Movie Summary Corpus](http://www.cs.cmu.edu/~ark/personas/)
-- ~42,303 movies after join on `wiki_id`
-- Files: `movie.metadata.tsv` + `plot_summaries.txt` in `data/external/MovieSummaries/`
-- Genres stored as Freebase JSON dicts — parsed into plain lists
+> `data/` and `models/` are excluded via `.gitignore`.
 
-### CoreNLP Annotations
-- 42,306 `.xml.gz` files in `data/external/corenlp_plot_summaries/`
-- Each file is CoreNLP-annotated XML for one movie's plot summary
-- Extraction: lemmas where POS ∈ {NN, NNS, NNP, NNPS, VB, VBD, VBG, VBN, VBP, VBZ, JJ, JJR, JJS}
-- Results cached to `models/corenlp_lemma_cache.joblib`
+### Step 1 — Download the datasets
+
+**CMU MovieSummaries** (v2, default):
+
+1. Go to <http://www.cs.cmu.edu/~ark/personas/>
+2. Download **MovieSummaries.tar.gz** and the **CoreNLP-processed plot summaries**
+3. Extract:
+
+```bash
+mkdir -p data/external
+tar -xzf MovieSummaries.tar.gz   -C data/external/
+tar -xzf corenlp_plot_summaries.tar    -C data/external/   # or .tgz
+```
+
+Expected layout:
+
+```text
+data/external/
+├── MovieSummaries/
+│   ├── movie.metadata.tsv        (~15 MB)
+│   ├── plot_summaries.txt        (~72 MB)
+│   └── character.metadata.tsv   (~40 MB)
+└── corenlp_plot_summaries/       (~42k .xml.gz files)
+```
+
+**Wikipedia Movie Plots** (v1, optional baseline):
+
+```bash
+# Requires Kaggle credentials configured (~/.kaggle/kaggle.json)
+pip install kagglehub
+python -c "import kagglehub; kagglehub.dataset_download('jrobischon/wikipedia-movie-plots')"
+```
+
+Or download manually from <https://www.kaggle.com/datasets/jrobischon/wikipedia-movie-plots>  
+and place `wiki_movie_plots_deduped.csv` in `data/raw/`.
+
+---
+
+### Step 2 — Build the lemma cache (one-time, ~100 s)
+
+Parses all 42k CoreNLP XML.gz files and saves a lemma cache:
+
+```bash
+python scripts/preprocess.py
+# → models/corenlp_lemma_cache.joblib  (~44 MB)
+```
+
+### Step 3 — Train and save the model
+
+Fits TF-IDF + SVD on the lemmatized corpus and saves the search artifact:
+
+```bash
+python scripts/train_model.py
+# → models/search_artifacts_v2.joblib  (~567 MB)
+```
+
+After this the Streamlit app loads instantly without rebuilding.
+
+---
+
+### What each model file contains
+
+| File | Size | Contents |
+|------|------|---------|
+| `models/corenlp_lemma_cache.joblib` | ~44 MB | Pre-parsed POS-filtered lemma strings per movie |
+| `models/search_artifacts_v2.joblib` | ~567 MB | TF-IDF vectorizer + SVD + Normalizer + L2-normalized document matrix |
+| `models/search_artifacts.joblib` | ~281 MB | Same for v1 Wikipedia baseline |
 
 ---
 
@@ -227,37 +282,6 @@ heist robbery gang money
 ## License
 
 No license file is currently included. Add a license (e.g. MIT) before public distribution.
-
-
-The workflow uses Wikipedia movie plot descriptions from Kaggle, projects movie text and user queries into latent semantic space, and ranks results with cosine similarity.
-
-## Current Scope
-
-- Notebook-first implementation in `main.ipynb`
-- Fixed dataset: `jrobischon/wikipedia-movie-plots` (~34,886 movies)
-- One-time Kaggle download, cached to `data/` for all subsequent runs
-- TF-IDF vectorization with English stopword removal
-- SVD-based dimensionality reduction (LSA)
-- Cosine similarity search with top-k ranking
-- Optional genre and year range filters
-- Exploratory visualizations for data and model behavior
-- Multi-query comparison section for quick qualitative evaluation
-- Term-level explanation of why each result matched
-
-## Project Structure
-
-```text
-svd_search_engine/
-|- app.py                                 # Streamlit multipage entry
-|- pages/
-|  |- 1_Process_Notebook_View.py          # Notebook-equivalent process page
-|  |- 2_Real_Time_SVD_Demo.py             # Real-time search demo page
-|- streamlit_ui.py                        # Shared Streamlit UI helpers
-|- search_pipeline.py                     # Reusable data/model/search pipeline
-|- main.ipynb                             # End-to-end notebook pipeline and plots
-|- functionality.md                       # Detailed functionality documentation
-|- requirements.txt                       # Python dependencies
-|- readme.md                              # Project overview and usage
 ```
 
 ## Notebook Pipeline
