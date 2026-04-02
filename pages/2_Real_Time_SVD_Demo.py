@@ -1,28 +1,42 @@
+import sys
+from pathlib import Path
+
+_src = Path(__file__).resolve().parents[1] / "src"
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
 import pandas as pd
 import streamlit as st
 
-from search_pipeline import explain_results
+from src.svd_search.models.evaluate import explain_results
 from streamlit_ui import (
     chart_result_scores,
     dataset_bounds,
     get_artifacts,
     run_search,
-    save_current_artifacts,
-    sidebar_controls,
 )
 
 st.title("Real-Time SVD Search Demo")
-st.caption("Interactive semantic retrieval using LSA cosine similarity")
+st.caption("Interactive semantic retrieval using the pre-trained CoreNLP LSA model")
 
-n_components, rebuild, save = sidebar_controls()
-artifacts, _, _ = get_artifacts(n_components, rebuild)
-
-if save:
-    save_current_artifacts()
+# Load the pre-trained artifact — no slider, no rebuild, no save
+artifacts, _, _ = get_artifacts(n_components=150, rebuild=False)
 
 if artifacts is None:
     st.info("Loading model…")
     st.stop()
+
+# Sidebar: read-only model info
+st.sidebar.header("Model Info")
+st.sidebar.caption("Corpus: CMU MovieSummaries + CoreNLP lemmas")
+_fp = (artifacts.data_fingerprint[:16] + "…") if artifacts.data_fingerprint else "N/A"
+st.sidebar.markdown(
+    f"- **Movies**: {len(artifacts.df):,}\n"
+    f"- **SVD components**: {artifacts.svd.n_components}\n"
+    f"- **Vocabulary**: {len(artifacts.tfidf.get_feature_names_out()):,} terms\n"
+    f"- **Model version**: {artifacts.version}\n"
+    f"- **Built at**: {artifacts.created_at or 'N/A'}\n"
+)
 
 all_genres = sorted({g for genres in artifacts.df["genre"] for g in genres})
 year_min, year_max = dataset_bounds(artifacts.df)
@@ -31,7 +45,9 @@ st.subheader("Search Controls")
 c1, c2, c3 = st.columns(3)
 query = c1.text_input("Query", value="space adventure")
 genre_filter = c2.selectbox("Genre", ["All"] + all_genres)
-year_range = c3.slider("Year range", min_value=year_min, max_value=year_max, value=(year_min, year_max))
+year_range = c3.slider(
+    "Year range", min_value=year_min, max_value=year_max, value=(year_min, year_max)
+)
 
 c4, _ = st.columns(2)
 top_k = c4.slider("Top K", min_value=3, max_value=30, value=10)
@@ -70,25 +86,5 @@ else:
                     width="stretch",
                 )
 
-st.subheader("Quick Multi-Query Check")
-query_block = st.text_area(
-    "One query per line",
-    value="space mission\nlove story romance\nmysterious detective case\nterrifying threat friends",
-    height=120,
-)
-
-for q in [line.strip() for line in query_block.splitlines() if line.strip()]:
-    st.markdown(f"**Query:** {q}")
-    top3 = run_search(
-        query=q,
-        artifacts=artifacts,
-        top_k=3,
-        genre_filter=genre_filter,
-        year_range=year_range,
-    )
-    if top3.empty:
-        st.write("No results")
-    else:
-        st.dataframe(top3[["title", "genre", "similarity"]], width="stretch")
 
 st.info("This page is optimized for real-time experimentation with search behavior.")

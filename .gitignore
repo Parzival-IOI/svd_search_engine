@@ -1,20 +1,40 @@
-/venv
-/__pycache__/
-/data
-/artifacts
+# Python
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.db
-*.sqlite3
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Data (large files — store externally or with DVC)
+data/raw/
+data/external/
+data/processed/
+
+# Model artifacts (large binaries)
+models/
+!models/.gitkeep
+
+# Outputs
+outputs/figures/
+outputs/logs/
+!outputs/figures/.gitkeep
+!outputs/logs/.gitkeep
+
+# Misc
 *.log
 *.env
 .DS_Store
 .idea/
 .vscode/
-*.egg-info/
-dist/
-build/
-*.egg
+*.db
+*.sqlite3
 *.tar.gz
-*.whl

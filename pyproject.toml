@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "svd-search"
+version = "2.0.0"
+description = "SVD-based Movie Search Engine using LSA and cosine similarity"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "kagglehub",
+    "joblib",
+    "streamlit",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

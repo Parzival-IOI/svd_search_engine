@@ -1,5 +1,17 @@
-import inspect
+"""Shared UI helpers for the SVD Movie Search Streamlit app.
+
+All pages import from this module. It bootstraps sys.path so the svd_search
+package (located in src/) is importable without requiring an editable install.
+"""
+import sys
 from pathlib import Path
+
+# Make src/ importable when running via `streamlit run app.py` from project root
+_src = Path(__file__).resolve().parent / "src"
+if str(_src) not in sys.path:
+    sys.path.insert(0, str(_src))
+
+import inspect
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,26 +19,28 @@ import pandas as pd
 import seaborn as sns
 import streamlit as st
 
-from search_pipeline import (
-    ARTIFACT_PATH,
+from svd_search import (
     PipelineArtifacts,
-    build_model,
     build_corpus,
+    build_lemma_corpus,
+    build_model,
     explain_results,
     load_artifacts,
-    load_dataset,
+    load_cmu_dataset,
     make_artifacts,
     save_artifacts,
     search_movies,
 )
+
+from svd_search.config.paths import ARTIFACT_V2, LEMMA_CACHE, MODELS_DIR
 
 sns.set_theme(style="whitegrid")
 
 
 @st.cache_data(show_spinner=False)
 def _load_data():
-    """Read the dataset CSV once per session; result is reused across all SVD component counts."""
-    return load_dataset()
+    """Load CMU MovieSummaries dataset once per session."""
+    return load_cmu_dataset()
 
 
 @st.cache_resource(show_spinner=False)
@@ -36,27 +50,25 @@ def _build_pipeline(n_components: int):
         df,
         n_components=n_components,
         data_fingerprint=mapping.get("data_fingerprint", ""),
+        use_lemmas=True,
     )
     return artifacts, X_tfidf, mapping
 
 
 def ensure_state():
-    if "artifacts" not in st.session_state:
-        st.session_state["artifacts"] = None
-    if "X_tfidf" not in st.session_state:
-        st.session_state["X_tfidf"] = None
-    if "mapping" not in st.session_state:
-        st.session_state["mapping"] = None
+    for key in ("artifacts", "X_tfidf", "mapping"):
+        st.session_state.setdefault(key, None)
 
 
 def sidebar_controls():
     st.sidebar.header("Pipeline Setup")
-    n_components = st.sidebar.slider("SVD components", min_value=10, max_value=300, value=100, step=10)
-
+    st.sidebar.caption("Corpus: CMU MovieSummaries + CoreNLP lemmas")
+    n_components = st.sidebar.slider(
+        "SVD components", min_value=10, max_value=300, value=150, step=10
+    )
     c1, c2 = st.sidebar.columns(2)
     rebuild = c1.button("Rebuild")
-    save = c2.button("Save")
-
+    save    = c2.button("Save")
     return n_components, rebuild, save
 
 
@@ -68,26 +80,33 @@ def get_artifacts(n_components: int, rebuild: bool):
         _build_pipeline.clear()
         st.session_state["artifacts"] = None
 
-    if ARTIFACT_PATH.exists() and st.session_state["artifacts"] is None:
-        with st.spinner("Loading saved artifacts..."):
-            artifacts = load_artifacts(ARTIFACT_PATH)
+    # 1) Try loading pre-built CoreNLP artifact from disk
+    if ARTIFACT_V2.exists() and st.session_state["artifacts"] is None:
+        with st.spinner("Loading CoreNLP artifacts…"):
+            artifacts = load_artifacts(ARTIFACT_V2)
             st.session_state["artifacts"] = artifacts
-            st.session_state["X_tfidf"] = artifacts.tfidf.transform(artifacts.corpus)
-            st.session_state["mapping"] = {
-                "data_file": "from saved artifact",
-                "mapped_columns": {},
-                "raw_shape": (0, 0),
+            st.session_state["X_tfidf"]   = artifacts.tfidf.transform(artifacts.corpus)
+            st.session_state["mapping"]    = {
+                "source_label":    "CMU MovieSummaries (CoreNLP lemmatized)",
+                "data_file":       str(ARTIFACT_V2),
+                "mapped_columns":  {"title": "title", "genre": "genres",
+                                    "description": "plot", "year": "release_date"},
                 "normalized_shape": artifacts.df.shape,
             }
 
+    # 2) Fall back: build in-memory from lemma cache + CMU metadata
     if st.session_state["artifacts"] is None:
-        with st.spinner("Loading data and building pipeline..."):
+        with st.spinner("Building pipeline from CoreNLP lemma cache…"):
             artifacts, X_tfidf, mapping = _build_pipeline(n_components)
             st.session_state["artifacts"] = artifacts
-            st.session_state["X_tfidf"] = X_tfidf
-            st.session_state["mapping"] = mapping
+            st.session_state["X_tfidf"]   = X_tfidf
+            st.session_state["mapping"]    = mapping
 
-    return st.session_state["artifacts"], st.session_state["X_tfidf"], st.session_state["mapping"]
+    return (
+        st.session_state["artifacts"],
+        st.session_state["X_tfidf"],
+        st.session_state["mapping"],
+    )
 
 
 def save_current_artifacts():
@@ -95,8 +114,9 @@ def save_current_artifacts():
     if artifacts is None:
         st.warning("No artifacts in memory yet. Build or load first.")
         return
-    saved = save_artifacts(artifacts, ARTIFACT_PATH)
-    st.success(f"Saved artifacts to: {saved}")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    saved = save_artifacts(artifacts, ARTIFACT_V2)
+    st.success(f"Saved CoreNLP artifacts to: {saved}")
 
 
 def show_code(title: str, fn):
@@ -106,7 +126,7 @@ def show_code(title: str, fn):
 
 def chart_year_distribution(df: pd.DataFrame):
     fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
-    sns.histplot(df["year"], bins=20, kde=True, ax=ax, color="#3B82F6")
+    sns.histplot(df["year"].dropna(), bins=20, kde=True, ax=ax, color="#3B82F6")
     ax.set_title("Movie Release Year Distribution")
     ax.set_xlabel("Year")
     return fig
@@ -181,7 +201,7 @@ def chart_lsa_scatter(df: pd.DataFrame, X_lsa: np.ndarray):
     ax.set_title("Movies in 2D Latent Semantic Space (Sample)")
     ax.set_xlabel("Latent Dimension 1")
     ax.set_ylabel("Latent Dimension 2")
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.legend(loc="best", fontsize=7, markerscale=0.8, framealpha=0.7)
     fig.tight_layout()
     return fig
 
@@ -230,8 +250,9 @@ def run_search(
 
 def process_functions_for_display():
     return [
-        load_dataset,
+        load_cmu_dataset,
         build_corpus,
+        build_lemma_corpus,
         build_model,
         make_artifacts,
         search_movies,

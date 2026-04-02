@@ -1,0 +1,31 @@
+project:
+  name: svd-search
+  version: "2.0.0"
+
+model:
+  n_components: 150
+  corpus_type: corenlp_lemmatized   # or "raw"
+  tfidf:
+    stop_words: english
+    sublinear_tf: true
+    min_df: 3
+    max_df: 0.90
+    ngram_range: [1, 2]
+
+paths:
+  data_raw:       data/raw
+  data_external:  data/external
+  data_processed: data/processed
+  models:         models
+  outputs:        outputs
+  notebooks:      notebooks
+
+data:
+  wikipedia_csv: data/raw/jrobischon_wikipedia-movie-plots.csv
+  corenlp_dir:   data/external/corenlp_plot_summaries
+  movie_meta:    data/external/MovieSummaries
+
+artifacts:
+  v1:          models/search_artifacts.joblib
+  v2:          models/search_artifacts_v2.joblib
+  lemma_cache: models/corenlp_lemma_cache.joblib
