@@ -41,6 +41,10 @@ st.sidebar.caption("Model: CMU MovieSummaries + CoreNLP lemmas, k=150 SVD compon
 # Load artifacts once
 artifacts, X_tfidf, _ = get_artifacts(n_components=150, rebuild=False)
 
+# X_tfidf may be None on partial session-state reloads — recompute from artifact
+if artifacts is not None and X_tfidf is None:
+    X_tfidf = artifacts.tfidf.transform(artifacts.corpus)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. INTRODUCTION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -278,7 +282,7 @@ elif section == "Text Representation: TF-IDF":
             ],
         }))
 
-    if artifacts is not None:
+    if artifacts is not None and X_tfidf is not None:
         st.divider()
         plot_col_used = "plot" if "plot" in artifacts.df.columns else "description"
         n, v = X_tfidf.shape

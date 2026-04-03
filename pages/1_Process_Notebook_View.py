@@ -16,8 +16,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 
-from src.svd_search import search_movies
-from src.svd_search.models.evaluate import explain_results
+from svd_search import search_movies, explain_results
 from streamlit_ui import (
     chart_genre,
     chart_lsa_scatter,
@@ -38,6 +37,10 @@ st.caption(
 
 # Load pre-trained CoreNLP artifact — no slider, no rebuild, no save
 artifacts, X_tfidf, _ = get_artifacts(n_components=150, rebuild=False)
+
+# X_tfidf may be None on partial session-state reloads — recompute from artifact
+if artifacts is not None and X_tfidf is None:
+    X_tfidf = artifacts.tfidf.transform(artifacts.corpus)
 
 if artifacts is None:
     st.info("Loading model…")
@@ -189,6 +192,8 @@ st.markdown(
 n_r, v_r = X_raw.shape
 sp_r = round((1 - X_raw.nnz / (n_r * v_r)) * 100, 2)
 X_lemma = X_tfidf
+if X_lemma is None:
+    X_lemma = artifacts.tfidf.transform(artifacts.corpus)
 n_l, v_l = X_lemma.shape
 sp_l = round((1 - X_lemma.nnz / (n_l * v_l)) * 100, 2)
 
