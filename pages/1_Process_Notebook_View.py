@@ -8,6 +8,7 @@ if str(_src) not in sys.path:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import seaborn as sns
 import streamlit as st
 from sklearn.decomposition import TruncatedSVD
@@ -263,8 +264,174 @@ st.markdown(
     "The lemmatized scatter typically shows tighter, more separated clusters."
 )
 
-# ── 6) Side-by-Side Search Comparison ───────────────────────────────────────
-st.subheader("6) Side-by-Side Search: Raw vs Lemmatized")
+# ── 5b) Conceptual SVD Toy Example ──────────────────────────────────────────
+st.subheader("5b) Conceptual SVD Decomposition — Toy Example")
+st.markdown(
+    "Before applying SVD to 42 k movies, we build intuition with a hand-crafted **6×5 matrix** — "
+    "3 horror movies and 3 romance movies over 5 terms. "
+    "SVD discovers the genre structure automatically from word co-occurrence alone."
+)
+
+with st.expander("Show toy SVD visualisation", expanded=True):
+    _terms = ["ghost", "haunt", "house", "love", "heart"]
+    _docs  = ["Horror 1", "Horror 2", "Horror 3", "Romance 1", "Romance 2", "Romance 3"]
+    _A_toy = np.array([
+        [0.9, 0.8, 0.7, 0.0, 0.0],
+        [0.8, 0.7, 0.0, 0.1, 0.0],
+        [0.7, 0.9, 0.6, 0.0, 0.1],
+        [0.0, 0.0, 0.1, 0.9, 0.8],
+        [0.0, 0.1, 0.0, 0.8, 0.9],
+        [0.1, 0.0, 0.0, 0.7, 0.8],
+    ])
+    _U_toy, _sigma_toy, _Vt_toy = np.linalg.svd(_A_toy, full_matrices=False)
+    _fig_toy, _axes_toy = plt.subplots(1, 3, figsize=(18, 4), constrained_layout=True)
+
+    sns.heatmap(_A_toy, annot=True, fmt=".1f",
+                xticklabels=_terms, yticklabels=_docs,
+                cmap="Blues", ax=_axes_toy[0])
+    _axes_toy[0].set_title("Matrix A — Term-Document Matrix\n(6 movies × 5 terms)")
+
+    sns.heatmap(_Vt_toy[:3, :], annot=True, fmt=".2f",
+                xticklabels=_terms,
+                yticklabels=[f"Topic {i}" for i in range(3)],
+                cmap="RdBu_r", center=0, ax=_axes_toy[1])
+    _axes_toy[1].set_title("V^T — Topic-Term Weights\n(top 3 components)\nPositive = term belongs to topic")
+
+    _ax_u = _axes_toy[2]
+    _col_toy = ["#EF4444"] * 3 + ["#3B82F6"] * 3
+    for _i, (_d, _c) in enumerate(zip(_docs, _col_toy)):
+        _ax_u.scatter(_U_toy[_i, 0], _U_toy[_i, 1], color=_c, s=150, zorder=3)
+        _ax_u.annotate(_d, (_U_toy[_i, 0], _U_toy[_i, 1]),
+                       textcoords="offset points", xytext=(6, 4), fontsize=9)
+    _ax_u.axhline(0, color="gray", lw=0.7)
+    _ax_u.axvline(0, color="gray", lw=0.7)
+    _ax_u.set_xlabel("LSA Dim 1")
+    _ax_u.set_ylabel("LSA Dim 2")
+    _ax_u.set_title("U — Documents in 2D Latent Space\n(Horror=red, Romance=blue)")
+    _ax_u.legend(handles=[
+        mpatches.Patch(color="#EF4444", label="Horror"),
+        mpatches.Patch(color="#3B82F6", label="Romance"),
+    ])
+    _fig_toy.suptitle("Conceptual SVD on a 6×5 Term-Document Matrix", fontsize=13)
+    st.pyplot(_fig_toy)
+    plt.close(_fig_toy)
+
+    st.markdown(
+        f"**Singular values**: `{[round(float(s), 3) for s in _sigma_toy]}`  \n"
+        "Horror movies cluster on one side of Dim 1; romance movies on the other. "
+        "SVD discovers this genre structure purely from word co-occurrence."
+    )
+
+# ── 5c) Real LSA Model Internals — U, Σ, V^T ─────────────────────────────────
+st.subheader("5c) Real LSA Model Internals — U, Σ, V^T")
+st.markdown(
+    "The same decomposition applied to the full 42 k-movie corpus. "
+    "The **singular value spectrum** (Σ) shows how variance is distributed across components; "
+    "the **topic-term matrix** (V^T) reveals which vocabulary terms define each latent topic."
+)
+
+_feature_names_int = artifacts.tfidf.get_feature_names_out()
+_svd_model         = artifacts.svd
+_svs_real          = _svd_model.singular_values_
+_evr_real          = _svd_model.explained_variance_ratio_
+_N_COMP_INT        = _svd_model.n_components
+
+_fig_int, _axes_int = plt.subplots(1, 3, figsize=(20, 5), constrained_layout=True)
+
+# Σ: Singular Value Spectrum
+_ax_sv = _axes_int[0]
+_ax_sv.bar(range(1, _N_COMP_INT + 1), _svs_real, color="#6366F1", alpha=0.7)
+_ax_sv.set_title(f"Σ — Singular Value Spectrum\n({_N_COMP_INT} components)", fontsize=11)
+_ax_sv.set_xlabel("Component index (k)")
+_ax_sv.set_ylabel("Singular value σₖ")
+_ax_sv.set_xlim(0, _N_COMP_INT + 1)
+_ax_sv2 = _ax_sv.twinx()
+_ax_sv2.plot(range(1, _N_COMP_INT + 1), np.cumsum(_evr_real), color="#F59E0B", lw=2)
+_ax_sv2.set_ylabel("Cumulative Explained Variance", color="#F59E0B")
+_ax_sv2.tick_params(axis="y", labelcolor="#F59E0B")
+_ax_sv2.set_ylim(0, 1.05)
+
+# V^T: Topic-Term Heatmap
+_ax_vt = _axes_int[1]
+_N_SHOW_T = 10
+_all_top_t = set()
+for _ci in range(_N_SHOW_T):
+    _all_top_t.update(np.argsort(np.abs(_svd_model.components_[_ci]))[-8:].tolist())
+_all_top_t = sorted(_all_top_t)[:20]
+_vt_sub = _svd_model.components_[:_N_SHOW_T, :][:, _all_top_t]
+sns.heatmap(
+    _vt_sub,
+    xticklabels=[_feature_names_int[i] for i in _all_top_t],
+    yticklabels=[f"Topic {i}" for i in range(_N_SHOW_T)],
+    cmap="RdBu_r", center=0, ax=_ax_vt, cbar=True, linewidths=0.3,
+)
+_ax_vt.set_title(f"V^T — Topic-Term Weights\n(first {_N_SHOW_T} topics × top terms)", fontsize=11)
+_ax_vt.tick_params(axis="x", rotation=45, labelsize=8)
+_ax_vt.tick_params(axis="y", labelsize=9)
+
+# U: Documents in 2D
+_ax_u2 = _axes_int[2]
+_sample_u2 = np.random.default_rng(99).choice(len(artifacts.df), size=600, replace=False)
+_genres_u2 = artifacts.df["genre"].apply(
+    lambda g: g[0] if isinstance(g, list) and g else "Unknown"
+).iloc[_sample_u2]
+sns.scatterplot(
+    data=pd.DataFrame({
+        "x": artifacts.X_lsa[_sample_u2, 0],
+        "y": artifacts.X_lsa[_sample_u2, 1],
+        "genre": _genres_u2.values,
+    }),
+    x="x", y="y", hue="genre", alpha=0.55, s=18, ax=_ax_u2, legend=True,
+)
+_ax_u2.set_title("U — Document Positions\n(Dim 1 vs Dim 2, 600 sample)", fontsize=11)
+_ax_u2.set_xlabel("Latent Dimension 1")
+_ax_u2.set_ylabel("Latent Dimension 2")
+_ax_u2.legend(loc="best", fontsize=6, markerscale=0.8, framealpha=0.7)
+
+_fig_int.suptitle(
+    "Real LSA Model — U, Σ, V^T Visualization (CoreNLP Lemmatized Corpus)", fontsize=13
+)
+st.pyplot(_fig_int)
+plt.close(_fig_int)
+
+st.markdown(
+    "**Σ chart**: Values drop steeply then plateau — first ~20 topics dominate, rest capture noise.  \n"
+    "**V^T heatmap**: Red = term strongly defines this topic; blue = negative loading.  \n"
+    "**U scatter**: Genre clusters emerge in 2D without supervision — romance, horror, action separate naturally."
+)
+
+# ── 6) Cosine Similarity ─────────────────────────────────────────────────────
+st.subheader("6) Search Method — Cosine Similarity")
+st.latex(
+    r"\text{sim}(\vec{q}, \vec{m}) = \cos(\theta) = "
+    r"\frac{\vec{q} \cdot \vec{m}}{\|\vec{q}\| \cdot \|\vec{m}\|}"
+)
+st.markdown(
+    "After LSA projection, every movie and every query is a **dense vector** in $k$-dimensional "
+    "latent space. We measure similarity using the **cosine of the angle** — invariant to document length.\n\n"
+    "| Value | Meaning |\n"
+    "|-------|---------|\n"
+    "| $\\cos(\\theta) = 1$ | Identical direction — perfect semantic match |\n"
+    "| $\\cos(\\theta) = 0$ | Orthogonal — no shared latent topics |\n"
+    "| $\\cos(\\theta) < 0$ | Opposite directions — thematically opposite |\n\n"
+    "**Why not Euclidean?** A short plot and a long plot on the same topic point in the same "
+    "*direction* but have different *magnitudes*. Cosine ignores magnitude — only the angle matters.\n\n"
+    "**Why is it fast?** After L2-normalisation all vectors satisfy $\\|\\vec{m}\\| = 1$, so "
+    "$\\cos(\\theta) = \\vec{q} \\cdot \\vec{m}$. "
+    "All 42,303 scores reduce to **one matrix multiply** — milliseconds for 42 k movies.\n\n"
+    "**Complete search pipeline:**"
+)
+st.code(
+    "1. q_tfidf = tfidf.transform([query])      # (1 × V) sparse\n"
+    "2. q_lsa   = lsa.transform(q_tfidf)        # (1 × k) dense, L2-normalised\n"
+    "3. scores  = X_lsa @ q_lsa.T               # (42303,) — one matrix multiply\n"
+    "4. top_idx = argsort(scores)[::-1][:top_k] # top-k indices\n"
+    "5. return df.iloc[top_idx]                 # movie metadata",
+    language="python",
+)
+
+# ── 7) Side-by-Side Search Comparison ───────────────────────────────────────
+st.subheader("7) Side-by-Side Search: Raw vs Lemmatized")
 st.markdown(
     "The same queries run through both pipelines. "
     "Lemmatized results consistently show **higher top similarity** and **better-separated scores**."
@@ -313,8 +480,8 @@ for q in COMPARISON_QUERIES:
     st.caption(f"Top similarity — raw: {top_r:.4f} | lemmatized: {top_l:.4f}")
     st.divider()
 
-# ── 7) Term-Level Explanation ────────────────────────────────────────────────
-st.subheader("7) Term-Level Explanation")
+# ── 8) Term-Level Explanation ────────────────────────────────────────────────
+st.subheader("8) Term-Level Explanation")
 st.markdown(
     "For each retrieved result, the query–document overlap in LSA space is projected "
     "back to vocabulary space to identify which terms drove the match.\n\n"
@@ -342,7 +509,86 @@ if explain_query.strip():
     else:
         st.warning("No results found.")
 
-# ── 8) Pipeline Source Code ──────────────────────────────────────────────────
-st.subheader("8) Pipeline Source Code")
+# ── 9) Pipeline Source Code ──────────────────────────────────────────────────
+st.subheader("9) Pipeline Source Code")
 for fn in process_functions_for_display():
     show_code(fn.__name__, fn)
+
+# ── 10) Summary & Findings ────────────────────────────────────────────────────
+st.subheader("10) Summary & Findings")
+st.markdown(
+    "### Pipeline Recap\n"
+    "```\n"
+    "CMU MovieSummaries (42 k movies)\n"
+    "├── movie.metadata.tsv  ──┐\n"
+    "│   [title, genres, year]  │  inner join on wiki_id\n"
+    "└── plot_summaries.txt  ──┘\n"
+    "         │\n"
+    "         ▼\n"
+    "CoreNLP XML.gz annotations (per movie)\n"
+    "  → extract POS-filtered lemmas: {NN*, VB*, JJ*} only\n"
+    "  → cache to models/corenlp_lemma_cache.joblib\n"
+    "         │\n"
+    "         ▼\n"
+    "Document corpus: title + genre + lemma tokens\n"
+    "         │\n"
+    "TF-IDF (sublinear_tf, min_df=3, max_df=0.90, ngram_range=(1,2))\n"
+    "  → sparse matrix A: 42,303 × V terms\n"
+    "         │\n"
+    "Truncated SVD (k=150) + L2 Normalizer\n"
+    "  → A ≈ U_k Σ_k V_k^T\n"
+    "  → X_lsa: 42,303 × 150 dense, L2-normalized\n"
+    "         │\n"
+    "Search: cosine_similarity(q_lsa, X_lsa) → top-k movies\n"
+    "```"
+)
+
+st.markdown("### Key Insights")
+st.table(pd.DataFrame({
+    "Question": [
+        "Does more text help?",
+        "Does lemmatization help?",
+        "How many components?",
+        "Why not more components?",
+        "Why cosine, not Euclidean?",
+    ],
+    "Answer": [
+        "Yes — movies with <50 plot words produce near-empty TF-IDF vectors → noisy similarity scores",
+        "Yes — merging inflected forms increases co-occurrence counts per feature, giving SVD a stronger signal",
+        "150 captures most variance; diminishing returns past ~100",
+        "Larger k = more noise captured + slower search",
+        "Document length invariance — a short and long plot on the same topic score similarly",
+    ],
+}))
+
+st.markdown("### Limitations")
+st.table(pd.DataFrame({
+    "Limitation": [
+        "Bag-of-words — no word order",
+        "No negation handling",
+        "Static model — must retrain for new movies",
+        "No user feedback",
+        "Vocabulary boundary",
+    ],
+    "Impact": [
+        '"dog bites man" = "man bites dog" in TF-IDF',
+        '"not a love story" matches love story movies',
+        "Cannot update incrementally",
+        "Cannot improve relevance from click signals",
+        "Out-of-vocabulary query words are silently ignored",
+    ],
+}))
+
+st.markdown("### Final Configuration")
+st.code(
+    '# Corpus\n'
+    'CoreNLP POS filter: {NN, NNS, NNP, NNPS, VB, VBD, VBG, VBN, VBP, VBZ, JJ, JJR, JJS}\n'
+    'Minimum lemma length: 3 characters, alphabetic only\n\n'
+    '# TF-IDF\n'
+    'TfidfVectorizer(stop_words="english", sublinear_tf=True,\n'
+    '                min_df=3, max_df=0.90, ngram_range=(1, 2))\n\n'
+    '# LSA\n'
+    'TruncatedSVD(n_components=150, random_state=42)\n'
+    'Normalizer()   # L2 → cosine similarity = dot product',
+    language="python",
+)

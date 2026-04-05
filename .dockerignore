@@ -1,0 +1,49 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Git and IDE
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Notebooks (not needed at runtime)
+notebooks/
+*.ipynb
+
+# Tests
+tests/
+.pytest_cache/
+
+# Large data files — mounted as volumes at runtime instead
+data/
+
+# Model artifacts — mounted as a volume at runtime instead
+models/
+
+# Docs and presentations
+*.md
+*.pdf
+*.pptx
+scripts/
+
+# Logs and outputs
+outputs/
+*.log
